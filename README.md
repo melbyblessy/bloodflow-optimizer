@@ -2,7 +2,7 @@
 
 BloodFlow Optimizer is an educational web application for exploring blood inventory distribution between hospitals. It uses blood-group compatibility checking, geographical distance calculations, graph-based route finding, and optimization algorithms to generate blood transfer plans while estimating transportation costs.
 
-🌐 **Live Demo:** https://bloodflow-five.vercel.app/
+ **Live Demo:** https://bloodflow-five.vercel.app/
 
 > **For education only.** This project is not intended for clinical use or to guide real blood transfusions or transportation decisions.
 
