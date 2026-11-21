@@ -1,13 +1,10 @@
-"""Blood compatibility and transfer planning algorithms."""
+"""Blood transfer planner using A* search, CSP backtracking and hill climbing."""
 
 import heapq
 import math
 
-
 BLOOD_TYPES = ["O-", "O+", "A-", "A+", "B-", "B+", "AB-", "AB+"]
 
-# Red-cell donor compatibility: keys are donor groups and values are
-# recipient groups that can receive those cells.
 COMPATIBILITY = {
     "O-": BLOOD_TYPES,
     "O+": ["O+", "A+", "B+", "AB+"],
@@ -21,70 +18,111 @@ COMPATIBILITY = {
 
 
 def distance(lat1, lon1, lat2, lon2):
-    """Return the great-circle distance in kilometres."""
-    radius = 6371
-    lat1, lat2 = math.radians(lat1), math.radians(lat2)
-    lon1, lon2 = math.radians(lon1), math.radians(lon2)
-    a = math.sin((lat2 - lat1) / 2) ** 2
-    b = math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
-    return radius * 2 * math.atan2(math.sqrt(a + b), math.sqrt(1 - a - b))
+    """Haversine distance in kilometres."""
+    lat1, lon1, lat2, lon2 = map(math.radians, (lat1, lon1, lat2, lon2))
+    a = math.sin((lat2 - lat1) / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
+    return 6371 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-def astar(start, goal, hospitals):
-    """Find a shortest route in the complete graph of hospital locations."""
-    queue = [(0, 0, start)]
-    visited = set()
+def km(h, a, b):
+    return distance(h[a]["lat"], h[a]["lon"], h[b]["lat"], h[b]["lon"])
+
+
+# 1. A* Search: shortest route, heuristic = straight-line distance to goal.
+def astar(start, goal, h):
+    queue, seen = [(0, 0, start)], set()
     while queue:
-        _, cost, current = heapq.heappop(queue)
-        if current == goal:
+        _, cost, node = heapq.heappop(queue)
+        if node == goal:
             return cost
-        if current in visited:
+        if node in seen:
             continue
-        visited.add(current)
-        for neighbour in hospitals:
-            if neighbour == current or neighbour in visited:
-                continue
-            step = distance(
-                hospitals[current]["lat"], hospitals[current]["lon"],
-                hospitals[neighbour]["lat"], hospitals[neighbour]["lon"],
-            )
-            new_cost = cost + step
-            heuristic = distance(
-                hospitals[neighbour]["lat"], hospitals[neighbour]["lon"],
-                hospitals[goal]["lat"], hospitals[goal]["lon"],
-            )
-            heapq.heappush(queue, (new_cost + heuristic, new_cost, neighbour))
+        seen.add(node)
+        for nxt in h:
+            if nxt not in seen:
+                g = cost + km(h, node, nxt)
+                heapq.heappush(queue, (g + km(h, nxt, goal), g, nxt))
     return 0
 
 
+# 2. CSP Backtracking: give each recipient one compatible donor that can
+#    cover its full demand, without exceeding any donor's surplus.
+def backtrack(recipients, domains, h, assignment, used):
+    if len(assignment) == len(recipients):
+        return assignment
+    r = recipients[len(assignment)]
+    for d in domains[r] + [None]:
+        if d is None or used.get(d, 0) + h[r]["demand"] <= h[d]["surplus"]:
+            assignment[r] = d
+            if d:
+                used[d] = used.get(d, 0) + h[r]["demand"]
+            if backtrack(recipients, domains, h, assignment, used):
+                return assignment
+            if d:
+                used[d] -= h[r]["demand"]
+            del assignment[r]
+    return None
+
+
+def allocate(order, h, cost_per_km):
+    """Fill demand in the given order. Returns (score, transfers, surplus, demand)."""
+    surplus = {n: x["surplus"] for n, x in h.items()}
+    demand = {n: x["demand"] for n, x in h.items()}
+    transfers, cost = [], 0
+    for d, r, dist in order:
+        units = min(surplus[d], demand[r])
+        if units > 0:
+            surplus[d] -= units
+            demand[r] -= units
+            transfers.append((d, r, dist, units))
+            cost += dist * cost_per_km * units
+    return sum(demand.values()) * 1_000_000 + cost, transfers, surplus, demand
+
+
+# 3. Hill Climbing: swap pairs in the allocation order while it improves.
+def hill_climb(order, h, cost_per_km):
+    best = allocate(order, h, cost_per_km)[0]
+    improved = True
+    while improved:
+        improved = False
+        for i in range(len(order)):
+            for j in range(i + 1, len(order)):
+                order[i], order[j] = order[j], order[i]
+                score = allocate(order, h, cost_per_km)[0]
+                if score < best:
+                    best, improved = score, True
+                else:
+                    order[i], order[j] = order[j], order[i]
+    return order
+
+
 def optimize_distribution(hospitals, cost_per_km):
-    """Allocate compatible donor inventory to hospital demand in input order.
+    h = hospitals
+    pairs = [(d, r, astar(d, r, h))
+             for r in h if h[r]["demand"] > 0
+             for d in h if d != r and h[d]["surplus"] > 0
+             and h[r]["needed"] in COMPATIBILITY[h[d]["blood"]]]
 
-    Each hospital is a mapping with lat, lon, blood, surplus, needed, and
-    demand fields. Returns transfer rows and the updated hospital mappings.
-    """
-    transfers = []
-    for receiver, recipient in hospitals.items():
-        for donor, source in hospitals.items():
-            if donor == receiver or recipient["demand"] <= 0:
-                continue
-            if recipient["needed"] not in COMPATIBILITY[source["blood"]]:
-                continue
-            if source["surplus"] <= 0:
-                continue
+    recipients = sorted({r for _, r, _ in pairs})
+    domains = {r: [d for d, rr, _ in sorted(pairs, key=lambda p: p[2])
+                   if rr == r and h[d]["surplus"] >= h[r]["demand"]] for r in recipients}
+    assignment = backtrack(recipients, domains, h, {}, {}) or {}
 
-            units = min(recipient["demand"], source["surplus"])
-            km = astar(donor, receiver, hospitals)
-            unit_cost = km * cost_per_km
-            transfers.append({
-                "From": donor,
-                "To": receiver,
-                "Blood Group": source["blood"],
-                "Units": units,
-                "Distance (km)": round(km, 2),
-                "Cost per Unit (₹)": round(unit_cost, 2),
-                "Total Cost (₹)": round(unit_cost * units, 2),
-            })
-            source["surplus"] -= units
-            recipient["demand"] -= units
-    return transfers, hospitals
+    primary = [p for p in pairs if assignment.get(p[1]) == p[0]]
+    rest = sorted((p for p in pairs if p not in primary), key=lambda p: p[2])
+    order = hill_climb(primary + rest, h, cost_per_km)
+    _, allocated, surplus, demand = allocate(order, h, cost_per_km)
+
+    transfers = [{
+        "From": d,
+        "To": r,
+        "Blood Group": h[d]["blood"],
+        "Units": units,
+        "Distance (km)": round(dist, 2),
+        "Cost per Unit (₹)": round(dist * cost_per_km, 2),
+        "Total Cost (₹)": round(dist * cost_per_km * units, 2),
+    } for d, r, dist, units in allocated]
+
+    for n in h:
+        h[n]["surplus"], h[n]["demand"] = surplus[n], demand[n]
+    return transfers, h
