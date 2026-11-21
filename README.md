@@ -1,6 +1,8 @@
 # BloodFlow Optimizer
 
-BloodFlow Optimizer is an educational Flask web app for exploring blood inventory transfers between hospitals. It checks basic red-cell donor compatibility, estimates distances from hospital coordinates, allocates available units to demand, and estimates transportation costs.
+BloodFlow Optimizer is an educational web application for exploring blood inventory distribution between hospitals. It uses blood-group compatibility checking, geographical distance calculations, graph-based route finding, and optimization algorithms to generate blood transfer plans while estimating transportation costs.
+
+🌐 **Live Demo:** https://bloodflow-five.vercel.app/
 
 > **For education only.** This project is not intended for clinical use or to guide real blood transfusions or transportation decisions.
 
@@ -17,7 +19,7 @@ Open a terminal in the project directory and create a virtual environment:
 python -m venv .venv
 ```
 
-Activate it on Windows PowerShell and install the dependency:
+Activate it on Windows PowerShell and install the dependencies:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
@@ -31,44 +33,69 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-Start the development server:
+Start the application:
 
 ```bash
-python app.py
+streamlit run app.py
 ```
 
-Open [http://127.0.0.1:5000](http://127.0.0.1:5000) in a browser. Stop the server with `Ctrl+C`.
+Open the local URL displayed in the terminal in a browser. Stop the server with `Ctrl+C`.
 
 ## Use the app
 
-1. On **Optimizer**, select how many hospitals to include (2–8).
-2. Enter each hospital’s name and latitude/longitude in decimal degrees.
-3. Set its available blood group and surplus units, then its required blood group and demand.
-4. Set the estimated transportation cost per kilometre.
-5. Select **Generate transfer plan** to view recommended transfers, estimated cost, and remaining inventory.
-6. Select **Download CSV** to save the transfer rows. Use **Restore default data** to start again with the sample hospitals.
+1. Open the **Optimizer** page to configure the hospital network.
+2. Enter the hospital details, including geographical coordinates, available blood groups, surplus units, and required blood groups.
+3. Configure the transportation cost parameters.
+4. Generate a transfer plan to calculate compatible blood transfers between hospitals.
+5. Explore the optimized allocation, transportation routes, estimated distances, and costs.
+6. Review remaining inventory and unmet blood requirements.
+7. Download the generated transfer plan as a CSV file for further analysis.
 
-The **How it works** page in the sidebar describes each processing step in the app.
+The **How It Works** section provides an overview of the algorithms and processing stages used by the application.
 
 ## How it works
 
-The frontend and algorithm are kept separate:
-
-- `app.py` contains the Flask routes, HTML/CSS interface, form validation, session storage, and CSV download.
-- `algorithm.py` contains the blood-group compatibility table, distance and route functions, and transfer allocation logic.
+The application combines blood compatibility checking, graph algorithms, and optimization techniques to generate hospital-to-hospital transfer plans.
 
 The calculation follows these steps:
 
-1. **Validate inputs.** The app checks hospital names are non-empty and unique, coordinates are in range (latitude −90 to 90, longitude −180 to 180), blood groups are supported, and unit counts and cost are non-negative.
-2. **Check donor compatibility.** A lookup table in `algorithm.py` determines whether each donor blood group can serve the recipient’s requested group.
-3. **Estimate distance.** The Haversine formula uses the two hospitals’ coordinates to estimate great-circle distance in kilometres.
-4. **Estimate a route.** `astar()` applies A* search, using distance travelled as its path cost and estimated distance to the destination as its heuristic. In the current model every hospital is connected directly to every other hospital using straight-line distance.
-5. **Allocate units.** `optimize_distribution()` visits recipients and donors in the order they appear in the submitted form. For each compatible pair, it transfers the smaller of the outstanding demand and donor’s remaining surplus. This is a greedy allocation strategy.
-6. **Calculate transport cost and update inventory.** Each transfer cost is estimated as `distance × cost per kilometre × units`. Donor surplus and recipient demand are reduced, and the results page summarizes the transfers and remaining amounts.
+1. **Validate inputs.** Hospital information, geographical coordinates, blood groups, inventory quantities, and transportation parameters are checked before processing.
+2. **Check donor compatibility.** A blood-group compatibility lookup determines whether available blood can be allocated to a hospital's requirements.
+3. **Calculate geographical distances.** The Haversine formula estimates the distance between hospital coordinates in kilometres.
+4. **Construct the hospital network.** K-Nearest Neighbours identifies nearby hospital connections, while Prim's Minimum Spanning Tree helps establish network connectivity.
+5. **Find transportation routes.** Uniform Cost Search (UCS) and A* Search are used to determine routes through the hospital network based on accumulated distance and heuristic estimates.
+6. **Optimize blood allocation.** An initial greedy allocation is improved using Simulated Annealing to explore alternative transfer combinations and reduce unmet demand and transportation effort.
+7. **Calculate transportation costs.** Transfer distances, allocated units, and transportation rates are used to estimate the total distribution cost.
+8. **Generate results.** The application presents transfer recommendations, remaining inventory, unmet requirements, and downloadable CSV reports.
+
+## Algorithms used
+
+| Algorithm | Purpose |
+|---|---|
+| Haversine Formula | Calculates geographical distances |
+| K-Nearest Neighbours | Identifies nearby hospital connections |
+| Prim's Minimum Spanning Tree | Establishes network connectivity |
+| Uniform Cost Search | Finds minimum-cost paths |
+| A* Search | Performs heuristic-based route finding |
+| Greedy Allocation | Generates an initial transfer plan |
+| Simulated Annealing | Improves the initial allocation |
+
+The Simulated Annealing optimization uses an objective function that considers both unmet blood demand and transportation effort:
+
+`Energy = 10,000 × Unmet Units + Unit-Kilometres`
+
+This gives priority to satisfying hospital demand while also considering transportation efficiency.
 
 ## Limitations
 
-- Distances are straight-line geographic estimates; there is no road network, route planning, traffic, or travel-time data. As a result, A* does not produce a real-world driving route in this version.
-- Allocation is greedy and depends on hospital row order. It does not guarantee that the overall shortage or total transportation cost is globally minimized.
-- The app does not model clinical eligibility, component types, expiry dates, storage, transportation constraints, or real-time inventory.
-- Flask’s built-in development server is intended for local development, not production deployment.
+- The application uses geographical distance estimates and does not necessarily represent actual road distances, traffic conditions, or travel times.
+- Route optimization depends on the constructed hospital network and does not account for real-world road restrictions.
+- Simulated Annealing is a heuristic optimization technique and does not guarantee a globally optimal solution.
+- Results depend on the accuracy of the hospital inventory, coordinates, and transportation cost inputs.
+- The application does not model clinical eligibility, blood component separation, expiry dates, storage conditions, or real-time inventory.
+- Transportation cost estimates are theoretical and may differ from actual logistics expenses.
+- This application is an educational prototype and has not been clinically validated.
+
+---
+
+**BloodFlow Optimizer – Exploring AI-driven optimization for healthcare logistics.**
